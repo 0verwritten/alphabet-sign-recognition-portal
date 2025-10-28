@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, File, HTTPException, UploadFile, status
+from starlette.concurrency import run_in_threadpool
 
 from app.api.deps import ASLServiceDep
 from app.models import ASLRecognitionResult
@@ -31,7 +32,7 @@ async def recognize_asl_letter(
 
     image_bytes = await file.read()
     try:
-        prediction = service.predict(image_bytes)
+        prediction = await run_in_threadpool(service.predict, image_bytes)
     except InvalidImageFormatError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     except HandNotDetectedError as exc:
