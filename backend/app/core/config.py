@@ -94,6 +94,11 @@ class Settings(BaseSettings):
     FIRST_SUPERUSER: EmailStr
     FIRST_SUPERUSER_PASSWORD: str
 
+    ASL_CLASSIFIER_PATH: str | None = None
+    ASL_MIN_DETECTION_CONFIDENCE: float = 0.5
+    ASL_MIN_TRACKING_CONFIDENCE: float = 0.5
+    ASL_MAX_NUM_HANDS: int = 1
+
     def _check_default_secret(self, var_name: str, value: str | None) -> None:
         if value == "changethis":
             message = (

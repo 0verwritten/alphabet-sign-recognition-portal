@@ -111,3 +111,9 @@ class TokenPayload(SQLModel):
 class NewPassword(SQLModel):
     token: str
     new_password: str = Field(min_length=8, max_length=128)
+
+
+class ASLRecognitionResult(SQLModel):
+    letter: str = Field(min_length=1, max_length=16)
+    confidence: float | None = Field(default=None, ge=0.0, le=1.0)
+    handedness: str | None = Field(default=None, max_length=16)
