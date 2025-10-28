@@ -2,6 +2,6 @@
 set -e
 set -x
 
-python app/tests_pre_start.py
+echo "Starting tests with simple mock API setup."
 
 bash scripts/test.sh "$@"

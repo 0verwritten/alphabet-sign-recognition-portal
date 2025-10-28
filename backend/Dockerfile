@@ -1,4 +1,4 @@
-FROM python:3.10
+FROM python:3.13
 
 ENV PYTHONUNBUFFERED=1
 
@@ -31,7 +31,7 @@ ENV PYTHONPATH=/app
 
 COPY ./scripts /app/scripts
 
-COPY ./pyproject.toml ./uv.lock ./alembic.ini /app/
+COPY ./pyproject.toml ./uv.lock /app/
 
 COPY ./app /app/app
 COPY ./tests /app/tests
