@@ -36,12 +36,12 @@ def test_service_predicts_letter_c(monkeypatch: pytest.MonkeyPatch) -> None:
 
     service = ASLRecognitionService(model_path=None)
 
-    def _fake_detect(self: ASLRecognitionService, image: np.ndarray):
+    def _fake_detect(_service: ASLRecognitionService, image: np.ndarray):
         assert isinstance(image, np.ndarray)
         assert image.ndim == 3 and image.shape[2] == 3
         return _make_fake_landmarks(), "right"
 
-    def _fake_classify(self: ASLRecognitionService, features: np.ndarray) -> _ClassificationOutput:
+    def _fake_classify(_service: ASLRecognitionService, features: np.ndarray) -> _ClassificationOutput:
         assert isinstance(features, np.ndarray)
         assert features.ndim == 1
         return _ClassificationOutput(label="C", confidence=0.91)

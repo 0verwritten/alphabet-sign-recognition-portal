@@ -82,7 +82,7 @@ class ASLRecognitionService:
         self._hand_connections: list[tuple[int, int]] | None = None
 
     @classmethod
-    def from_settings(cls) -> "ASLRecognitionService":
+    def from_settings(cls) -> ASLRecognitionService:
         """Create a service instance using values defined in the settings."""
 
         return cls(model_path=settings.ASL_CLASSIFIER_PATH)
@@ -249,7 +249,7 @@ class ASLRecognitionService:
         confidence: float | None = None
         if hasattr(self._classifier, "predict_proba"):
             try:
-                probabilities = getattr(self._classifier, "predict_proba")(features_2d)
+                probabilities = self._classifier.predict_proba(features_2d)  # type: ignore[attr-defined]
             except Exception:  # pragma: no cover - classifier-specific behaviour
                 probabilities = None
             if probabilities is not None:
@@ -258,7 +258,7 @@ class ASLRecognitionService:
                 if hasattr(self._classifier, "classes_"):
                     label = str(self._classifier.classes_[best_idx])
         elif hasattr(self._classifier, "decision_function"):
-            decision = getattr(self._classifier, "decision_function")(features_2d)
+            decision = self._classifier.decision_function(features_2d)  # type: ignore[attr-defined]
             if np.ndim(decision) == 1:
                 confidence = float(1 / (1 + np.exp(-float(decision[0]))))
             else:
