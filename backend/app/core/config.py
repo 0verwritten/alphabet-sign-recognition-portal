@@ -29,6 +29,10 @@ class Settings(BaseSettings):
         list[AnyUrl] | str, BeforeValidator(parse_cors)
     ] = []
     SENTRY_DSN: HttpUrl | None = None
+    ASL_CLASSIFIER_PATH: str | None = None
+    ASL_MIN_DETECTION_CONFIDENCE: float = 0.5
+    ASL_MIN_TRACKING_CONFIDENCE: float = 0.5
+    ASL_MAX_NUM_HANDS: int = 1
 
     @computed_field  # type: ignore[prop-decorator]
     @property
