@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Callable
 
 import pytest
@@ -55,6 +56,35 @@ def test_recognize_asl_letter_success(client: TestClient) -> None:
     assert response.json() == {
         "letter": "A",
         "confidence": pytest.approx(0.92, rel=1e-3),
+        "handedness": "right",
+    }
+
+
+def test_recognize_asl_letter_from_fixture_image(client: TestClient) -> None:
+    image_path = Path(__file__).resolve().parent / "asstes" / "letter-c-sign.png"
+    image_bytes = image_path.read_bytes()
+
+    expected = ASLRecognitionResult(letter="C", confidence=0.87, handedness="right")
+
+    class _RecordingService(_StubASLService):
+        def predict(self, image_bytes: bytes) -> ASLRecognitionResult:
+            assert image_bytes == image_bytes_expected
+            return super().predict(image_bytes)
+
+    image_bytes_expected = image_bytes
+    app.dependency_overrides[get_asl_recognition_service] = _override_service(
+        _RecordingService(result=expected)
+    )
+
+    response = client.post(
+        f"{settings.API_V1_STR}/asl/recognitions",
+        files={"file": (image_path.name, image_bytes, "image/png")},
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "letter": "C",
+        "confidence": pytest.approx(0.87, rel=1e-3),
         "handedness": "right",
     }
 

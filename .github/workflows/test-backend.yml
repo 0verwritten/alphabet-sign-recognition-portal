@@ -24,18 +24,9 @@ jobs:
         with:
           version: "0.4.15"
           enable-cache: true
-      - run: docker compose down -v --remove-orphans
-      - run: docker compose up -d db mailcatcher
-      - name: Migrate DB
-        run: uv run bash scripts/prestart.sh
+      - name: Install dependencies
+        run: uv sync
         working-directory: backend
-      - name: Run tests
-        run: uv run bash scripts/tests-start.sh "Coverage for ${{ github.sha }}"
+      - name: Run pytest
+        run: uv run pytest
         working-directory: backend
-      - run: docker compose down -v --remove-orphans
-      - name: Store coverage files
-        uses: actions/upload-artifact@v5
-        with:
-          name: coverage-html
-          path: backend/htmlcov
-          include-hidden-files: true
