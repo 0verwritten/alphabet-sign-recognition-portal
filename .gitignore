@@ -4,3 +4,5 @@ node_modules/
 /playwright-report/
 /blob-report/
 /playwright/.cache/
+/backend/data
+backend/models/checkpoint_epoch_*

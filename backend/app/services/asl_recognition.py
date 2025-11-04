@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING, Any
 
 import joblib
 import numpy as np
+import torch
 from PIL import Image, ImageOps, UnidentifiedImageError
 
 from app.core.config import settings
@@ -20,6 +21,7 @@ if TYPE_CHECKING:  # pragma: no cover - imported for type checking only
     from mediapipe.framework.formats.landmark_pb2 import NormalizedLandmarkList
     from mediapipe.python.solutions.hands import Hands
     from sklearn.base import ClassifierMixin
+    from app.ml.model import ASLClassifier
 
 
 LOGGER = logging.getLogger(__name__)
@@ -61,9 +63,14 @@ class ASLRecognitionService:
         min_detection_confidence: float | None = None,
         min_tracking_confidence: float | None = None,
         max_num_hands: int | None = None,
+        device: str | None = None,
+        use_mock: bool = False,
     ) -> None:
         self._model_path = self._resolve_model_path(model_path)
-        self._classifier = self._load_classifier(self._model_path)
+        self._device = device or ("cuda" if torch.cuda.is_available() else "cpu")
+        self._use_mock = use_mock
+        self._classifier, self._is_pytorch = self._load_classifier(self._model_path)
+        self._label_mapping: dict[int, str] | None = None
         self._detector: Hands | None = None  # type: ignore[name-defined]
         self._lock = Lock()
         self._min_detection_confidence = (
@@ -80,6 +87,12 @@ class ASLRecognitionService:
             max_num_hands if max_num_hands is not None else settings.ASL_MAX_NUM_HANDS
         )
         self._hand_connections: list[tuple[int, int]] | None = None
+
+        # Set up mock mode if enabled
+        if self._use_mock:
+            LOGGER.info("Mock mode enabled - predictions will be randomized")
+            if self._label_mapping is None:
+                self._label_mapping = {i: chr(65 + i) for i in range(26)}
 
     @classmethod
     def from_settings(cls) -> ASLRecognitionService:
@@ -131,23 +144,81 @@ class ASLRecognitionService:
                 return package_candidate
         return path
 
-    def _load_classifier(self, model_path: Path | None) -> ClassifierMixin | None:  # type: ignore[name-defined]
+    def _load_classifier(
+        self, model_path: Path | None
+    ) -> tuple[ClassifierMixin | torch.nn.Module | None, bool]:  # type: ignore[name-defined]
+        """
+        Load classifier from path. Supports both PyTorch (.pt, .pth) and scikit-learn (.joblib, .pkl).
+
+        Returns:
+            Tuple of (classifier, is_pytorch_model)
+        """
         if model_path is None:
             LOGGER.info("No ASL classifier configured; predictions will be disabled.")
-            return None
+            return None, False
 
         if not model_path.exists():
             LOGGER.warning("ASL classifier not found at %s", model_path)
-            return None
+            return None, False
 
         try:
-            classifier: ClassifierMixin = joblib.load(model_path)
+            # Detect model type by extension
+            suffix = model_path.suffix.lower()
+
+            if suffix in {".pt", ".pth"}:
+                # Load PyTorch model
+                checkpoint = torch.load(model_path, map_location=self._device, weights_only=False)
+
+                # Handle different checkpoint formats
+                if isinstance(checkpoint, dict):
+                    # Import here to avoid circular imports
+                    from app.ml.model import create_model
+
+                    # Extract metadata from checkpoint
+                    model_config = checkpoint.get("model_config", {})
+                    model_type = model_config.get("model_type", "v1")
+                    input_size = model_config.get("input_size", 84)
+                    num_classes = model_config.get("num_classes", 26)
+
+                    # Create model instance
+                    model = create_model(
+                        model_type=model_type,
+                        input_size=input_size,
+                        num_classes=num_classes,
+                    )
+                    model.load_state_dict(checkpoint["model_state_dict"])
+                    model.to(self._device)
+                    model.eval()
+
+                    # Load label mapping if available
+                    if "label_mapping" in checkpoint:
+                        self._label_mapping = checkpoint["label_mapping"]
+                    else:
+                        # Default A-Z mapping
+                        self._label_mapping = {i: chr(65 + i) for i in range(26)}
+
+                    LOGGER.info("Loaded PyTorch model from %s on device %s", model_path, self._device)
+                    return model, True
+                else:
+                    # Direct model state dict (legacy format)
+                    model = checkpoint
+                    model.to(self._device)
+                    model.eval()
+                    self._label_mapping = {i: chr(65 + i) for i in range(26)}
+                    LOGGER.info("Loaded PyTorch model from %s on device %s", model_path, self._device)
+                    return model, True
+
+            else:
+                # Load scikit-learn model
+                classifier: ClassifierMixin = joblib.load(model_path)
+                LOGGER.info("Loaded scikit-learn model from %s", model_path)
+                return classifier, False
+
         except Exception as exc:  # pragma: no cover - defensive programming
             LOGGER.exception("Failed to load ASL classifier from %s", model_path)
             raise ModelNotReadyError(
                 f"Could not load ASL classifier from '{model_path}'."
             ) from exc
-        return classifier
 
     def _import_mediapipe(self) -> Any:
         try:
@@ -190,10 +261,10 @@ class ASLRecognitionService:
         self, image: np.ndarray
     ) -> tuple[NormalizedLandmarkList | None, str | None]:  # type: ignore[name-defined]
         detector = self._get_detector()
-        image.flags.writeable = False
+        # image.flags.writeable = False
         with self._lock:
             results = detector.process(image)
-        image.flags.writeable = True
+        # image.flags.writeable = True
 
         if not results.multi_hand_landmarks:
             return None, None
@@ -231,6 +302,10 @@ class ASLRecognitionService:
         return feature_vector.astype(np.float32)
 
     def _classify(self, features: np.ndarray) -> _ClassificationOutput:
+        # Use mock prediction if enabled
+        if self._use_mock:
+            return self._classify_mock(features)
+
         if self._classifier is None:
             target = self._model_path if self._model_path else "<not configured>"
             raise ModelNotReadyError(
@@ -238,18 +313,48 @@ class ASLRecognitionService:
                 f"Set ASL_CLASSIFIER_PATH to a trained model (expected at {target})."
             )
 
-        features_2d = features.reshape(1, -1)
         try:
-            predicted = self._classifier.predict(features_2d)
-            label = str(predicted[0])
+            if self._is_pytorch:
+                return self._classify_pytorch(features)
+            else:
+                return self._classify_sklearn(features)
         except Exception as exc:  # pragma: no cover - defensive programming
             LOGGER.exception("Classifier failed to produce a prediction")
             raise ModelNotReadyError("ASL classifier failed during inference.") from exc
 
+    def _classify_pytorch(self, features: np.ndarray) -> _ClassificationOutput:
+        """Classify using PyTorch model."""
+        # Convert to tensor and move to device
+        features_tensor = torch.from_numpy(features).float().unsqueeze(0).to(self._device)
+
+        # Get predictions
+        with torch.no_grad():
+            logits = self._classifier(features_tensor)  # type: ignore[misc]
+            probabilities = torch.softmax(logits, dim=1)
+            confidence_tensor, predicted_class = torch.max(probabilities, dim=1)
+
+        predicted_idx = predicted_class.item()
+        confidence = confidence_tensor.item()
+
+        # Map index to label
+        if self._label_mapping:
+            label = self._label_mapping[predicted_idx]
+        else:
+            # Fallback to A-Z mapping
+            label = chr(65 + predicted_idx) if predicted_idx < 26 else str(predicted_idx)
+
+        return _ClassificationOutput(label=label, confidence=confidence)
+
+    def _classify_sklearn(self, features: np.ndarray) -> _ClassificationOutput:
+        """Classify using scikit-learn model."""
+        features_2d = features.reshape(1, -1)
+        predicted = self._classifier.predict(features_2d)  # type: ignore[union-attr]
+        label = str(predicted[0])
+
         confidence: float | None = None
         if hasattr(self._classifier, "predict_proba"):
             try:
-                probabilities = self._classifier.predict_proba(features_2d)  # type: ignore[attr-defined]
+                probabilities = self._classifier.predict_proba(features_2d)  # type: ignore[union-attr]
             except Exception:  # pragma: no cover - classifier-specific behaviour
                 probabilities = None
             if probabilities is not None:
@@ -258,7 +363,7 @@ class ASLRecognitionService:
                 if hasattr(self._classifier, "classes_"):
                     label = str(self._classifier.classes_[best_idx])
         elif hasattr(self._classifier, "decision_function"):
-            decision = self._classifier.decision_function(features_2d)  # type: ignore[attr-defined]
+            decision = self._classifier.decision_function(features_2d)  # type: ignore[union-attr]
             if np.ndim(decision) == 1:
                 confidence = float(1 / (1 + np.exp(-float(decision[0]))))
             else:
@@ -269,6 +374,33 @@ class ASLRecognitionService:
                 confidence = float(probabilities[best_idx])
                 if hasattr(self._classifier, "classes_"):
                     label = str(self._classifier.classes_[best_idx])
+
+        return _ClassificationOutput(label=label, confidence=confidence)
+
+    def _classify_mock(self, features: np.ndarray) -> _ClassificationOutput:
+        """
+        Mock classifier for testing without a trained model.
+
+        Returns a deterministic prediction based on feature hash for consistency,
+        with randomized confidence scores.
+
+        Args:
+            features: Feature vector (not used in mock mode, but kept for compatibility)
+
+        Returns:
+            Mock classification output
+        """
+        # Use feature hash to get deterministic but varied predictions
+        feature_hash = hash(features.tobytes()) % 26
+
+        # Generate a confidence score based on the hash (between 0.65 and 0.98)
+        confidence_base = (hash(features.tobytes()) % 33) / 100  # 0.00 to 0.32
+        confidence = 0.65 + confidence_base
+
+        # Map to label
+        label = self._label_mapping[feature_hash] if self._label_mapping else chr(65 + feature_hash)
+
+        LOGGER.debug(f"Mock prediction: {label} (confidence: {confidence:.2f})")
 
         return _ClassificationOutput(label=label, confidence=confidence)
 

@@ -1,5 +1,27 @@
 # FastAPI Project - Backend
 
+## ASL Recognition System
+
+This backend includes a complete ASL (American Sign Language) alphabet recognition system using MediaPipe for hand detection and PyTorch for classification.
+
+### Quick Start with ASL Recognition
+
+1. **Install dependencies**: `uv sync`
+2. **Get dataset**: Download [ASL Alphabet Dataset](https://www.kaggle.com/datasets/grassknoted/asl-alphabet)
+3. **Prepare data**: `python scripts/prepare_dataset.py --input-dir data/asl_alphabet/ --output-file data/asl_features.npz`
+4. **Train model**: `python scripts/train_model.py --data-file data/asl_features.npz --output-dir models/`
+5. **Configure**: Set `ASL_CLASSIFIER_PATH=models/best_model.pt` in `.env`
+6. **Start API**: `uvicorn app.main:app --reload`
+
+See [docs/QUICKSTART.md](docs/QUICKSTART.md) for detailed instructions.
+
+### Documentation
+
+- [Quick Start Guide](docs/QUICKSTART.md) - Get started in 15 minutes
+- [Full Training Guide](docs/PYTORCH_MODEL_TRAINING.md) - Comprehensive training documentation
+- [Migration Guide](docs/PYTORCH_MIGRATION.md) - PyTorch implementation details
+- [API Documentation](SIGN_RECOGNITION.md) - ASL recognition endpoint
+
 ## Requirements
 
 * [Docker](https://www.docker.com/).
