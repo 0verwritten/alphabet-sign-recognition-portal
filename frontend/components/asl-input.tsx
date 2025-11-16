@@ -5,10 +5,11 @@ import type React from "react"
 import { useState, useRef, useEffect, useCallback } from "react"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
-import { Upload, Camera, X, Image as ImageIcon } from "lucide-react"
+import { Upload, Camera, X, Image as ImageIcon, RefreshCw } from "lucide-react"
 
 interface ASLInputProps {
   onImageCapture: (imageBlob: Blob) => void
+  onImageClear?: () => void
   isProcessing: boolean
 }
 
@@ -73,11 +74,12 @@ async function compressImage(file: File): Promise<Blob> {
   })
 }
 
-export function ASLInput({ onImageCapture, isProcessing }: ASLInputProps) {
+export function ASLInput({ onImageCapture, onImageClear, isProcessing }: ASLInputProps) {
   const [mode, setMode] = useState<"upload" | "camera" | null>(null)
   const [imageSrc, setImageSrc] = useState<string | null>(null)
   const [stream, setStream] = useState<MediaStream | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [currentBlob, setCurrentBlob] = useState<Blob | null>(null)
 
   const videoRef = useRef<HTMLVideoElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
@@ -151,6 +153,7 @@ export function ASLInput({ onImageCapture, isProcessing }: ASLInputProps) {
       const compressed = await compressImage(file)
       const url = createAndTrackBlobUrl(compressed)
       setImageSrc(url)
+      setCurrentBlob(compressed)
       setMode("upload")
       onImageCapture(compressed)
     } catch (err) {
@@ -209,6 +212,7 @@ export function ASLInput({ onImageCapture, isProcessing }: ASLInputProps) {
 
         const url = createAndTrackBlobUrl(blob)
         setImageSrc(url)
+        setCurrentBlob(blob)
         onImageCapture(blob)
 
         // Stop camera stream
@@ -232,12 +236,22 @@ export function ASLInput({ onImageCapture, isProcessing }: ASLInputProps) {
       blobUrlRef.current = null
     }
     setImageSrc(null)
+    setCurrentBlob(null)
     setMode(null)
     setError(null)
     if (fileInputRef.current) {
       fileInputRef.current.value = ""
     }
-  }, [stream])
+
+    // Notify parent to clear results
+    onImageClear?.()
+  }, [stream, onImageClear])
+
+  const handleRefresh = useCallback(() => {
+    if (currentBlob) {
+      onImageCapture(currentBlob)
+    }
+  }, [currentBlob, onImageCapture])
 
   return (
     <Card className="flex flex-col overflow-hidden bg-card">
@@ -342,20 +356,35 @@ export function ASLInput({ onImageCapture, isProcessing }: ASLInputProps) {
 
         {imageSrc && (
           <div className="flex flex-1 flex-col gap-4">
-            <div className="relative flex-1 overflow-hidden rounded-lg bg-black">
-              <img src={imageSrc} alt="Captured ASL sign" className="h-full w-full object-contain" />
+            <div className="relative flex-1 overflow-hidden rounded-lg bg-black/10">
+              <img src={imageSrc} alt="Captured ASL sign" className="h-full w-full object-contain max-h-96" />
             </div>
 
-            <Button
-              onClick={reset}
-              variant="outline"
-              size="lg"
-              className="gap-2 bg-transparent"
-              aria-label="Clear image and start over"
-            >
-              <X className="h-5 w-5" aria-hidden="true" />
-              Clear & Capture New Sign
-            </Button>
+            <div className="flex gap-2">
+              <Button
+                onClick={handleRefresh}
+                variant="default"
+                size="lg"
+                className="flex-1 gap-2"
+                disabled={isProcessing || !currentBlob}
+                aria-label="Re-analyze this image"
+                aria-busy={isProcessing}
+              >
+                <RefreshCw className={`h-5 w-5 ${isProcessing ? 'animate-spin' : ''}`} aria-hidden="true" />
+                {isProcessing ? 'Analyzing...' : 'Re-analyze'}
+              </Button>
+
+              <Button
+                onClick={reset}
+                variant="outline"
+                size="lg"
+                className="gap-2 bg-transparent"
+                disabled={isProcessing}
+                aria-label="Clear image and start over"
+              >
+                <X className="h-5 w-5" aria-hidden="true" />
+              </Button>
+            </div>
           </div>
         )}
       </div>
