@@ -3,14 +3,28 @@
 import { useState } from "react"
 import { ASLInput } from "@/components/asl-input"
 import { ASLRecognitionDisplay } from "@/components/asl-recognition-display"
+import { HistoryPanel } from "@/components/history-panel"
 import { useASLRecognition, type ASLRecognitionResponse } from "@/lib/api-client"
-import { Hand } from "lucide-react"
+import { useRecognitionHistory } from "@/hooks/use-recognition-history"
+import { Hand, History } from "lucide-react"
+import { Button } from "@/components/ui/button"
 
 export default function Home() {
   const [recognitionResult, setRecognitionResult] = useState<ASLRecognitionResponse | null>(null)
+  const [currentImageBlob, setCurrentImageBlob] = useState<Blob | null>(null)
+  const [currentImageSrc, setCurrentImageSrc] = useState<string | null>(null)
+  const [isHistoryOpen, setIsHistoryOpen] = useState(false)
+
   const { mutate: recognizeSign, isPending, error } = useASLRecognition()
+  const { history, addToHistory, removeFromHistory, clearHistory } = useRecognitionHistory()
 
   const handleImageCapture = async (imageBlob: Blob) => {
+    // Store the current image blob
+    setCurrentImageBlob(imageBlob)
+
+    // Clear external image source (used for history items)
+    setCurrentImageSrc(null)
+
     // Reset previous result
     setRecognitionResult(null)
 
@@ -18,12 +32,39 @@ export default function Home() {
     recognizeSign(imageBlob, {
       onSuccess: (data) => {
         setRecognitionResult(data)
+        // Add to history
+        addToHistory(data, imageBlob)
       },
     })
   }
 
   const handleImageClear = () => {
     setRecognitionResult(null)
+    setCurrentImageBlob(null)
+    setCurrentImageSrc(null)
+  }
+
+  const handleHistoryItemClick = (item: ReturnType<typeof useRecognitionHistory>['history'][0]) => {
+    // Convert data URL back to blob
+    fetch(item.imageDataUrl)
+      .then(res => res.blob())
+      .then(blob => {
+        setCurrentImageBlob(blob)
+        setCurrentImageSrc(item.imageDataUrl)
+        setRecognitionResult({
+          letter: item.letter,
+          confidence: item.confidence,
+          hand_pose: item.handPose,
+        })
+        setIsHistoryOpen(false)
+      })
+      .catch(err => console.error("Failed to load history item:", err))
+  }
+
+  const handleClearHistory = () => {
+    if (confirm("Are you sure you want to clear all recognition history?")) {
+      clearHistory()
+    }
   }
 
   return (
@@ -31,16 +72,35 @@ export default function Home() {
       {/* Header */}
       <header className="border-b border-border bg-card">
         <div className="container mx-auto px-4 py-4">
-          <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary">
-              <Hand className="h-6 w-6 text-primary-foreground" />
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-3">
+              <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary">
+                <Hand className="h-6 w-6 text-primary-foreground" />
+              </div>
+              <div>
+                <h1 className="text-xl font-bold text-foreground">ASL Alphabet Recognition Portal</h1>
+                <p className="text-sm text-muted-foreground">
+                  Real-time American Sign Language recognition using AI
+                </p>
+              </div>
             </div>
-            <div>
-              <h1 className="text-xl font-bold text-foreground">ASL Alphabet Recognition Portal</h1>
-              <p className="text-sm text-muted-foreground">
-                Real-time American Sign Language recognition using AI
-              </p>
-            </div>
+
+            {/* History Toggle Button */}
+            <Button
+              variant="outline"
+              size="default"
+              onClick={() => setIsHistoryOpen(!isHistoryOpen)}
+              className="gap-2"
+              aria-label={isHistoryOpen ? "Close history" : "Open history"}
+            >
+              <History className="h-5 w-5" />
+              <span className="hidden sm:inline">History</span>
+              {history.length > 0 && (
+                <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-primary px-1.5 text-xs text-primary-foreground">
+                  {history.length}
+                </span>
+              )}
+            </Button>
           </div>
         </div>
       </header>
@@ -53,6 +113,8 @@ export default function Home() {
             onImageCapture={handleImageCapture}
             onImageClear={handleImageClear}
             isProcessing={isPending}
+            externalImageSrc={currentImageSrc}
+            externalImageBlob={currentImageBlob}
           />
 
           {/* Right Side - Recognition Display */}
@@ -104,6 +166,25 @@ export default function Home() {
           <p>Powered by MediaPipe, PyTorch, FastAPI, and React</p>
         </div>
       </footer>
+
+      {/* Overlay for mobile */}
+      {isHistoryOpen && (
+        <div
+          className="fixed inset-0 bg-black/50 z-40 sm:hidden"
+          onClick={() => setIsHistoryOpen(false)}
+          aria-hidden="true"
+        />
+      )}
+
+      {/* History Panel */}
+      <HistoryPanel
+        history={history}
+        isOpen={isHistoryOpen}
+        onClose={() => setIsHistoryOpen(false)}
+        onItemClick={handleHistoryItemClick}
+        onItemDelete={removeFromHistory}
+        onClearAll={handleClearHistory}
+      />
     </div>
   )
 }
