@@ -22,6 +22,10 @@ export default function Home() {
     })
   }
 
+  const handleImageClear = () => {
+    setRecognitionResult(null)
+  }
+
   return (
     <div className="min-h-screen bg-background">
       {/* Header */}
@@ -45,7 +49,11 @@ export default function Home() {
       <main className="container mx-auto p-4">
         <div className="grid gap-4 lg:grid-cols-2 lg:gap-6">
           {/* Left Side - Image Input */}
-          <ASLInput onImageCapture={handleImageCapture} isProcessing={isPending} />
+          <ASLInput
+            onImageCapture={handleImageCapture}
+            onImageClear={handleImageClear}
+            isProcessing={isPending}
+          />
 
           {/* Right Side - Recognition Display */}
           <ASLRecognitionDisplay
