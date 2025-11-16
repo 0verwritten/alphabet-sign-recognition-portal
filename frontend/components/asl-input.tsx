@@ -11,6 +11,8 @@ interface ASLInputProps {
   onImageCapture: (imageBlob: Blob) => void
   onImageClear?: () => void
   isProcessing: boolean
+  externalImageSrc?: string | null
+  externalImageBlob?: Blob | null
 }
 
 const MAX_FILE_SIZE = 5 * 1024 * 1024 // 5MB
@@ -74,7 +76,13 @@ async function compressImage(file: File): Promise<Blob> {
   })
 }
 
-export function ASLInput({ onImageCapture, onImageClear, isProcessing }: ASLInputProps) {
+export function ASLInput({
+  onImageCapture,
+  onImageClear,
+  isProcessing,
+  externalImageSrc,
+  externalImageBlob
+}: ASLInputProps) {
   const [mode, setMode] = useState<"upload" | "camera" | null>(null)
   const [imageSrc, setImageSrc] = useState<string | null>(null)
   const [stream, setStream] = useState<MediaStream | null>(null)
@@ -126,6 +134,15 @@ export function ASLInput({ onImageCapture, onImageClear, isProcessing }: ASLInpu
       return () => window.removeEventListener("keydown", handleKeyPress)
     }
   }, [mode, imageSrc])
+
+  // Sync external image from history
+  useEffect(() => {
+    if (externalImageSrc && externalImageBlob) {
+      setImageSrc(externalImageSrc)
+      setCurrentBlob(externalImageBlob)
+      setMode("upload")
+    }
+  }, [externalImageSrc, externalImageBlob])
 
   const createAndTrackBlobUrl = useCallback((blob: Blob) => {
     // Revoke previous URL if exists
