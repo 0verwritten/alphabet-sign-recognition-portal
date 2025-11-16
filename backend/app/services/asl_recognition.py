@@ -15,7 +15,7 @@ import torch
 from PIL import Image, ImageOps, UnidentifiedImageError
 
 from app.core.config import settings
-from app.models import ASLRecognitionResult
+from app.models import ASLRecognitionResult, BoundingBox, HandPoseResult, Landmark
 
 if TYPE_CHECKING:  # pragma: no cover - imported for type checking only
     from mediapipe.framework.formats.landmark_pb2 import NormalizedLandmarkList
@@ -118,6 +118,59 @@ class ASLRecognitionService:
             letter=classification.label,
             confidence=classification.confidence,
             handedness=handedness,
+        )
+
+    def extract_hand_pose(self, image_bytes: bytes) -> HandPoseResult:
+        """
+        Extract hand pose landmarks from an image.
+
+        Args:
+            image_bytes: Raw image bytes
+
+        Returns:
+            HandPoseResult containing 21 landmarks, handedness, and bounding box
+
+        Raises:
+            InvalidImageFormatError: If image cannot be parsed
+            HandNotDetectedError: If no hands are detected
+            MediapipeNotAvailableError: If MediaPipe is not available
+        """
+        if not image_bytes:
+            raise InvalidImageFormatError("No image data received.")
+
+        image = self._load_image(image_bytes)
+        detector = self._get_detector()
+
+        with self._lock:
+            results = detector.process(image)
+
+        if not results.multi_hand_landmarks:
+            raise HandNotDetectedError("No hands were detected in the provided image.")
+
+        # Extract first hand's landmarks
+        hand_landmarks = results.multi_hand_landmarks[0]
+
+        # Convert landmarks to Pydantic models
+        landmarks = [
+            Landmark(x=lm.x, y=lm.y, z=lm.z) for lm in hand_landmarks.landmark
+        ]
+
+        # Extract handedness information
+        handedness: str | None = None
+        handedness_confidence: float | None = None
+        if results.multi_handedness:
+            classification = results.multi_handedness[0].classification[0]
+            handedness = classification.label.lower()
+            handedness_confidence = classification.score
+
+        # Calculate bounding box
+        bounding_box = self._calculate_bounding_box(hand_landmarks)
+
+        return HandPoseResult(
+            landmarks=landmarks,
+            handedness=handedness,
+            handedness_confidence=handedness_confidence,
+            bounding_box=bounding_box,
         )
 
     def close(self) -> None:
@@ -275,6 +328,25 @@ class ASLRecognitionService:
             handedness = classification.label.lower()
 
         return results.multi_hand_landmarks[0], handedness
+
+    def _calculate_bounding_box(self, landmarks: NormalizedLandmarkList) -> BoundingBox:  # type: ignore[name-defined]
+        """Calculate bounding box from hand landmarks."""
+        x_coords = [lm.x for lm in landmarks.landmark]
+        y_coords = [lm.y for lm in landmarks.landmark]
+
+        x_min = min(x_coords)
+        x_max = max(x_coords)
+        y_min = min(y_coords)
+        y_max = max(y_coords)
+
+        return BoundingBox(
+            x_min=x_min,
+            y_min=y_min,
+            x_max=x_max,
+            y_max=y_max,
+            width=x_max - x_min,
+            height=y_max - y_min,
+        )
 
     def _extract_feature_vector(self, landmarks: NormalizedLandmarkList) -> np.ndarray:  # type: ignore[name-defined]
         coords = np.array(

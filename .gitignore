@@ -6,3 +6,4 @@ node_modules/
 /playwright/.cache/
 /backend/data
 backend/models/checkpoint_epoch_*
+.next
