@@ -144,6 +144,24 @@ export function ASLInput({
     }
   }, [externalImageSrc, externalImageBlob])
 
+  // Attach stream to video element when both are available
+  useEffect(() => {
+    const attachStreamToVideo = async () => {
+      if (stream && videoRef.current && mode === "camera") {
+        videoRef.current.srcObject = stream
+        try {
+          await videoRef.current.play()
+          console.log("Video stream attached and playing")
+        } catch (playError) {
+          console.error("Video play error:", playError)
+          setError("Failed to start video playback. Please try again.")
+        }
+      }
+    }
+
+    attachStreamToVideo()
+  }, [stream, mode])
+
   const createAndTrackBlobUrl = useCallback((blob: Blob) => {
     // Revoke previous URL if exists
     if (blobUrlRef.current) {
@@ -193,10 +211,7 @@ export function ASLInput({
       })
       setStream(mediaStream)
       setMode("camera")
-
-      if (videoRef.current) {
-        videoRef.current.srcObject = mediaStream
-      }
+      // Note: The stream will be attached to the video element by the useEffect
     } catch (error) {
       console.error("Camera access error:", error)
       setError(
@@ -206,13 +221,26 @@ export function ASLInput({
   }
 
   const captureImage = useCallback(() => {
-    if (!videoRef.current || !canvasRef.current) return
+    if (!videoRef.current || !canvasRef.current) {
+      console.error("Video or canvas ref not available")
+      return
+    }
 
     const video = videoRef.current
     const canvas = canvasRef.current
     const context = canvas.getContext("2d")
 
-    if (!context) return
+    if (!context) {
+      console.error("Canvas context not available")
+      return
+    }
+
+    // Check if video has valid dimensions
+    if (video.videoWidth === 0 || video.videoHeight === 0) {
+      console.error("Video not ready - invalid dimensions")
+      setError("Camera not ready yet. Please wait a moment and try again.")
+      return
+    }
 
     // Set canvas dimensions to match video
     canvas.width = video.videoWidth
